@@ -167,15 +167,38 @@
       modeIndicator.style.display = 'inline-block';
       modeIndicator.textContent = mode === 'addWeekends'
         ? 'Mode: Add Weekends (click to toggle green). Press Esc to exit.'
-        : 'Mode: Gray Out (click to toggle gray). Press Esc to exit.';
+        : 'Mode: Gray Out (click to toggle gray). Press Esc to exit. Tip: Hold Ctrl + drag to gray/ungray multiple days.';
+    }
+  }
+
+  /* ==============================================================
+     Ctrl+Drag (GRAY OUT MODE ONLY)
+     ==============================================================
+  */
+  let isGrayDrag = false;
+  let grayDragTarget = null;       // true => make gray, false => ungray
+  let suppressGrayClick = false;   // prevents "mouseup click" from double-toggling
+
+  document.addEventListener('mouseup', () => {
+    isGrayDrag = false;
+    grayDragTarget = null;
+  });
+
+  function applyGray(dateKey, cell, makeGray){
+    const already = !!grayouts[dateKey];
+    if(makeGray && !already){
+      grayouts[dateKey] = true;
+      cell.classList.add('grayout','unclickable');
+      saveGrayouts();
+    }else if(!makeGray && already){
+      delete grayouts[dateKey];
+      cell.classList.remove('grayout','unclickable');
+      saveGrayouts();
     }
   }
 
   /* ==============================================================
      RENDER HELPERS
-     - renderBlankFive: shows 5 empty months before a semester is chosen
-     - createMonth: builds a month element and wires click behaviors
-     - renderSemester: lays out 5 months for the chosen semester
      ==============================================================
   */
   function renderBlankFive(){
@@ -201,7 +224,6 @@
     wrap.className = 'month';
     wrap.innerHTML = `<div class="month-title">${new Date(year,month-1).toLocaleString('default',{month:'long'})} ${year}</div>`;
 
-    // Weekday header
     const dayNamesDiv = document.createElement('div');
     dayNamesDiv.className = 'day-names';
     ;['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{
@@ -210,14 +232,12 @@
     });
     wrap.appendChild(dayNamesDiv);
 
-    // Days grid
     const grid = document.createElement('div');
     grid.className = 'days';
 
     const firstDay = new Date(year, month-1, 1).getDay();
     const numDays  = new Date(year, month, 0).getDate();
 
-    // leading blanks
     for(let i=0;i<firstDay;i++){
       const e = document.createElement('div');
       e.className = 'day blank';
@@ -232,14 +252,10 @@
       cell.className = 'day';
       cell.textContent = day;
 
-      // Auto-weekend: Fri/Sat always green
       if(weekday===5 || weekday===6) cell.classList.add('weekend');
-      // User-added weekend overrides
       if(weekendOverrides[dateKey]) cell.classList.add('weekend');
-      // Grayouts (non-pickable in normal mode)
       if(grayouts[dateKey]) cell.classList.add('grayout','unclickable');
 
-      // Overlay mark (/ or X)
       const overlay = document.createElement('div');
       overlay.className = 'overlay';
       const saved = markState[dateKey] || '';
@@ -248,9 +264,34 @@
       else if(saved === 'X') overlay.classList.add('x');
       cell.appendChild(overlay);
 
-      // Click logic varies by mode
+      /* ---- Ctrl+Drag painting in GRAY OUT MODE ONLY ---- */
+      cell.addEventListener('mousedown', (ev) => {
+        if(mode !== 'grayOut') return;
+        if(!ev.ctrlKey) return;
+
+        ev.preventDefault();
+        suppressGrayClick = true;
+
+        isGrayDrag = true;
+        const isGrayNow = !!grayouts[dateKey];
+        grayDragTarget = !isGrayNow; // start on gray => ungray; start on normal => gray
+        applyGray(dateKey, cell, grayDragTarget);
+      });
+
+      cell.addEventListener('mouseenter', (ev) => {
+        if(mode !== 'grayOut') return;
+        if(!isGrayDrag) return;
+        if(!ev.ctrlKey) return;
+
+        applyGray(dateKey, cell, grayDragTarget);
+      });
+
       cell.addEventListener('click', (ev)=>{
-        // GRAY OUT MODE: toggle gray regardless of unclickable
+        if(mode === 'grayOut' && suppressGrayClick){
+          suppressGrayClick = false;
+          return;
+        }
+
         if(mode==='grayOut'){
           const isGray = !!grayouts[dateKey];
           if(isGray){ delete grayouts[dateKey]; cell.classList.remove('grayout','unclickable'); }
@@ -258,7 +299,7 @@
           saveGrayouts();
           return;
         }
-        // ADD WEEKENDS MODE: toggle green class
+
         if(mode==='addWeekends'){
           if(weekendOverrides[dateKey]){
             delete weekendOverrides[dateKey];
@@ -270,12 +311,12 @@
           saveWends();
           return;
         }
-        // NORMAL MODE: block marks on gray cells
+
         if(cell.classList.contains('unclickable')) return;
 
         const current = markState[dateKey] || '';
         const idx = states.indexOf(current);
-        const nextIdx = (current && !ev.ctrlKey && idx===2) ? 2 : (idx+1)%states.length; // lock X unless Ctrl to clear on next loop
+        const nextIdx = (current && !ev.ctrlKey && idx===2) ? 2 : (idx+1)%states.length;
         const next = states[nextIdx];
         markState[dateKey] = next;
         overlay.textContent = next;
@@ -300,14 +341,6 @@
     pageTitle.textContent = `RIT CRL Duty Pick — ${label}`;
   }
 
-  /* ==============================================================
-     CONTROLS WIRING
-     - Populates semester dropdown
-     - Handles Options menu (modes + clear marks)
-     - ESC exits any special mode
-     ==============================================================
-  */
-  // Build semester list
   generateSemesters(START_YEAR, FUTURE_SEMESTER_COUNT).forEach(lbl=>{
     const opt = document.createElement('option');
     opt.value = lbl; opt.textContent = lbl; semesterSelect.appendChild(opt);
@@ -334,10 +367,6 @@
 
   document.addEventListener('keydown', e=>{ if(e.key==='Escape' && mode!=='normal') setMode('normal'); });
 
-  /* ==============================================================
-     INIT
-     ==============================================================
-  */
   renderBlankFive();
   </script>
 </body>
